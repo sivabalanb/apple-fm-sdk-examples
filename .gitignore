@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+06-comparisons/results/
+05-batch-evaluation/classification_results.json
+05-batch-evaluation/sample_transcript.json
+07-real-world/bulk_tags.csv
+.DS_Store
+.pytest_cache/
+Untitled/
