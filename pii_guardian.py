@@ -1,12 +1,14 @@
 """
-PII Guardian — Local PII scanner and redactor.
+PII Guardian — Local PII scanner and redactor using Apple FM SDK.
 
 Scans files or directories for personally identifiable information (PII)
-such as names, SSNs, credit cards, emails, medical info, and API keys.
-Uses regex patterns for fast, on-device detection. All processing runs locally.
+using a hybrid approach: fast regex pre-filter + Apple FM on-device model
+for contextual detection (names, addresses, medical info, salary data).
+All processing runs locally — no data sent to cloud services.
 
 Usage:
   python pii_guardian.py scan document.txt
+  python pii_guardian.py scan document.txt --fm        # Enable Apple FM scanning
   python pii_guardian.py scan ./data/ --recursive
   python pii_guardian.py scan document.txt --redact
   python pii_guardian.py scan ./data/ --output report.json
@@ -15,12 +17,23 @@ Usage:
 """
 
 import argparse
+import asyncio
 import json
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Apple FM SDK — optional, graceful degradation if unavailable
+# ---------------------------------------------------------------------------
+
+try:
+    import apple_fm_sdk as fm
+    FM_AVAILABLE = True
+except ImportError:
+    FM_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
 # PII Types and Severity
@@ -54,6 +67,23 @@ REGEX_PATTERNS = {
     "api_key": r"(?:api[_-]?key|secret[_-]?key|access[_-]?token)['\"]?\s*[:=]\s*['\"]?[A-Za-z0-9_-]{20,}",
     "password": r"(?:password|passwd)['\"]?\s*[:=]\s*['\"]?[^\s\"']{8,}",
 }
+
+# Apple FM schema for PII detection (optional, if FM is available)
+if FM_AVAILABLE:
+    @fm.generable("Detect PII in text")
+    class PIIScanSchema:
+        contains_pii: bool = fm.guide(description="True if any PII is detected")
+        findings: str = fm.guide(
+            description=(
+                "Comma-separated list of detected PII in format 'type:value:severity'. "
+                "Example: 'name:John Smith:high,salary:$150000:high'. "
+                "Empty if no PII found."
+            )
+        )
+        risk_level: str = fm.guide(
+            description="Overall risk level of this text",
+            anyOf=SEVERITY_LEVELS
+        )
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -153,13 +183,96 @@ def regex_scan(text: str, source_file: str) -> list[PIIFinding]:
     return findings
 
 
+async def fm_scan_file(text: str, source_file: str, chunk_size: int = 500) -> list[PIIFinding]:
+    """
+    Scan text for PII using Apple FM with batching.
+    One session per file, chunks scanned sequentially.
+    Session is refreshed every 5 chunks to avoid context window overflow.
+    """
+    if not FM_AVAILABLE:
+        return []
+
+    findings = []
+    try:
+        model = fm.SystemLanguageModel()
+        is_available, _ = model.is_available()
+        if not is_available:
+            return []
+
+        chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
+        session = None
+        chunks_since_refresh = 0
+
+        for chunk_idx, chunk in enumerate(chunks):
+            start_line = text[: sum(len(chunks[j]) for j in range(chunk_idx))].count("\n") + 1
+
+            # Refresh session every 5 chunks to clear context window
+            if chunks_since_refresh >= 5 or session is None:
+                session = fm.LanguageModelSession(
+                    instructions=(
+                        "You are a privacy and PII detection specialist. Scan text for personally "
+                        "identifiable information: names, addresses, medical info, financial data, "
+                        "salary/compensation, employee details, and other sensitive personal data. "
+                        "Be thorough and conservative. Format findings as type:value:severity."
+                    ),
+                    model=model,
+                )
+                chunks_since_refresh = 0
+
+            prompt = (
+                "Scan this text for PII and report findings:\n\n"
+                f"{chunk}\n\n"
+                "Format: type:value:severity (e.g., name:John Smith:high,salary:$150000:high)"
+            )
+
+            try:
+                result = await session.respond(prompt, generating=PIIScanSchema)
+
+                if result.contains_pii and result.findings.strip():
+                    for finding_str in result.findings.split(","):
+                        finding_str = finding_str.strip()
+                        if not finding_str or ":" not in finding_str:
+                            continue
+
+                        parts = finding_str.split(":")
+                        if len(parts) >= 3:
+                            pii_type = parts[0].strip().lower()
+                            value = ":".join(parts[1:-1]).strip()
+                            severity = parts[-1].strip().lower()
+
+                            if severity not in SEVERITY_LEVELS:
+                                severity = "medium"
+
+                            findings.append(
+                                PIIFinding(
+                                    pii_type=pii_type,
+                                    value=value,
+                                    severity=severity,
+                                    context=value[:100],
+                                    line_number=start_line,
+                                    source_file=source_file,
+                                )
+                            )
+
+                chunks_since_refresh += 1
+
+            except fm.ExceededContextWindowSizeError:
+                # Skip this chunk and refresh session
+                chunks_since_refresh = 5
+
+    except Exception as e:
+        print(f"  [WARNING] FM scan error: {type(e).__name__}", file=sys.stderr)
+
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # File scanning
 # ---------------------------------------------------------------------------
 
 
-def scan_file(file_path: Path) -> ScanResult:
-    """Scan a single file for PII."""
+def scan_file(file_path: Path, use_fm: bool = False) -> ScanResult:
+    """Scan a single file for PII using regex and optionally Apple FM."""
     try:
         text = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
@@ -171,10 +284,16 @@ def scan_file(file_path: Path) -> ScanResult:
             scanned_chars=0,
         )
 
-    # Scan for PII
+    # Step 1: Fast regex pre-filter
     findings = regex_scan(text, str(file_path))
 
-    # Deduplicate findings based on type+value
+    # Step 2: FM scanning (optional, batched) — one session per file, chunks to avoid context window
+    # Only use FM on longer text (>200 chars) to avoid hallucination on short prompts
+    if use_fm and FM_AVAILABLE and len(text) > 200:
+        fm_findings = asyncio.run(fm_scan_file(text, str(file_path)))
+        findings.extend(fm_findings)
+
+    # Step 3: Deduplicate findings based on type+value
     seen = set()
     unique = []
     for f in findings:
@@ -210,7 +329,7 @@ SCAN_EXTENSIONS = {
 
 
 def scan_directory(
-    dir_path: Path, recursive: bool = True
+    dir_path: Path, recursive: bool = True, use_fm: bool = False
 ) -> list[ScanResult]:
     """Scan all text-like files in a directory."""
     results = []
@@ -218,7 +337,7 @@ def scan_directory(
 
     for file_path in dir_path.glob(pattern):
         if file_path.is_file() and file_path.suffix.lower() in SCAN_EXTENSIONS:
-            result = scan_file(file_path)
+            result = scan_file(file_path, use_fm=use_fm)
             results.append(result)
 
     return results
@@ -386,6 +505,8 @@ def pre_commit_scan() -> int:
     staged_files = get_staged_files()
 
     if not staged_files:
+        print("PII Guardian — Pre-commit Hook")
+        print("No staged files found. Nothing to scan.")
         return 0
 
     print("PII Guardian — Pre-commit Hook")
@@ -483,6 +604,11 @@ def main() -> None:
         help="Recursively scan directories",
     )
     scan_parser.add_argument(
+        "--fm",
+        action="store_true",
+        help="Enable Apple FM contextual scanning (detects names, addresses, medical info, salary)",
+    )
+    scan_parser.add_argument(
         "--redact",
         action="store_true",
         help="Generate redacted versions of files with PII",
@@ -517,16 +643,16 @@ def main() -> None:
             temp_file = Path("/tmp/pii_scan_stdin.txt")
             temp_file.write_text(text)
             try:
-                result = scan_file(temp_file)
+                result = scan_file(temp_file, use_fm=args.fm)
                 results.append(result)
             finally:
                 temp_file.unlink(missing_ok=True)
         else:
             path = Path(path_arg)
             if path.is_file():
-                results.append(scan_file(path))
+                results.append(scan_file(path, use_fm=args.fm))
             elif path.is_dir():
-                results.extend(scan_directory(path, recursive=args.recursive))
+                results.extend(scan_directory(path, recursive=args.recursive, use_fm=args.fm))
             else:
                 print(f"[ERROR] Path not found: {path_arg}")
                 sys.exit(1)

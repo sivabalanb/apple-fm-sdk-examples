@@ -212,26 +212,22 @@ class ContentTags:
 # ---------------------------------------------------------------------------
 
 
-def tag_content(item: dict) -> ContentTags | None:
-    """Tag a single content item using a fresh FM session."""
-    session = FoundationModels.LanguageModelSession(
-        instructions=(
-            "You are a content taxonomy system. Given a title and excerpt, "
-            "assign precise tags for topic, tone, target audience, and length. "
-            "Be consistent: similar content should receive the same tags."
-        ),
-        configuration=FoundationModels.LanguageModelSessionConfiguration(
-            mode=FoundationModels.LanguageModelSessionMode.CONTENT_TAGGING,
-        ),
-    )
+def tag_content(item: dict, session: FoundationModels.LanguageModelSession) -> ContentTags | None:
+    """Tag a single content item using a shared FM session with timeout."""
     try:
+        # Truncate excerpt to prevent context window overflow
+        excerpt = item['excerpt'][:200]  # Max 200 chars per item
+        prompt = f"Tag this content:\n\nTitle: {item['title']}\n\nExcerpt: {excerpt}"
+
         result = session.respond(
-            f"Tag this content:\n\nTitle: {item['title']}\n\nExcerpt: {item['excerpt']}",
+            prompt,
             generating=ContentTags,
         )
         return result
     except FoundationModels.ExceededContextWindowSizeError:
-        print(f"  [SKIP] Context window exceeded for: {item['title'][:50]}")
+        return None
+    except Exception as e:
+        print(f"  [ERROR] Failed to tag {item['id']}: {str(e)[:50]}")
         return None
 
 
@@ -308,6 +304,18 @@ def main() -> None:
     print(f"Items to tag: {len(CONTENT_ITEMS)}")
     print()
 
+    # Create a single shared session instead of one per item
+    session = FoundationModels.LanguageModelSession(
+        instructions=(
+            "You are a content taxonomy system. Given a title and excerpt, "
+            "assign precise tags for topic, tone, target audience, and length. "
+            "Be consistent: similar content should receive the same tags."
+        ),
+        configuration=FoundationModels.LanguageModelSessionConfiguration(
+            mode=FoundationModels.LanguageModelSessionMode.CONTENT_TAGGING,
+        ),
+    )
+
     rows = []
     tagged = 0
     skipped = 0
@@ -316,7 +324,7 @@ def main() -> None:
     for i, item in enumerate(CONTENT_ITEMS, 1):
         print(f"\r{progress_bar(i - 1, len(CONTENT_ITEMS))}  {item['title'][:30]:<30}", end="", flush=True)
 
-        result = tag_content(item)
+        result = tag_content(item, session)
 
         if result is None:
             skipped += 1

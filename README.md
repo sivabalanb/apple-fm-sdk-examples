@@ -24,6 +24,8 @@ The examples progress from basics to production patterns: plain-text generation,
 - **Apple Silicon** Mac with Apple Intelligence enabled
 - **Python 3.10+**
 
+> **Note:** These examples use a version of `apple-fm-sdk` that does not require Xcode. The library is imported locally via `pip install` — no Xcode installation or Swift toolchain needed.
+
 ## 🚀 Quick Start
 
 ```bash
