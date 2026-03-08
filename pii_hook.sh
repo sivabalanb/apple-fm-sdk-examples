@@ -3,7 +3,7 @@
 # Blocks prompts containing PII before they reach Claude's API
 # Reads UserPromptSubmit hook event JSON from stdin, extracts prompt, scans with pii_guardian.py
 
-set -euo pipefail
+set -uo pipefail
 
 # Extract the prompt from the JSON hook event
 PROMPT=$(cat | jq -r '.prompt // ""')
@@ -19,11 +19,11 @@ trap "rm -f $TEMP_FILE" EXIT
 
 echo "$PROMPT" > "$TEMP_FILE"
 
-# Get the repo root (where pii_guardian.py lives)
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+# Get the repo root (where pii_guardian.py lives) from the script's own location
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Scan with pii_guardian.py using Apple FM for contextual detection (batched/chunked to avoid context overflow)
-if python3 "$REPO_ROOT/pii_guardian.py" scan "$TEMP_FILE" --fm > /dev/null 2>&1; then
+if python3 "$REPO_ROOT/pii_guardian.py" scan "$TEMP_FILE" --fm > /dev/null; then
     # Exit 0 means no PII found — allow the prompt
     exit 0
 else
