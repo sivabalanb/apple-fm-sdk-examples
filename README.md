@@ -181,16 +181,18 @@ except fm.GenerationError as e:
 
 ```
 apple-fm-sdk-examples/
-├── 01-basics/                  # 5 scripts — init, availability, multi-turn, tagging, errors
-├── 02-streaming/               # 2 scripts — streaming, latency profiling
-├── 03-guided-generation/       # 4 scripts — structured output with constraints
-├── 04-tool-calling/            # 5 scripts — tools, multi-tool agents, stateful memory
-├── 05-batch-evaluation/        # 2 scripts — accuracy testing, transcript analysis
-├── 06-comparisons/             # 3 scripts — Apple FM vs Claude benchmarks
-├── 07-real-world/              # 3 scripts — commit suggester, doc classifier, bulk tagger
-├── docs/                       # 4 in-depth guides
-├── tests/                      # Structural + module-loadability tests (no device required)
-├── utils/                      # Claude client wrapper, timing helpers
+├── pii_guardian.py              # Standalone demo — local PII scanner & redactor
+├── PII_GUARDIAN_README.md       # PII Guardian documentation
+├── 01-basics/                   # 5 scripts — init, availability, multi-turn, tagging, errors
+├── 02-streaming/                # 2 scripts — streaming, latency profiling
+├── 03-guided-generation/        # 4 scripts — structured output with constraints
+├── 04-tool-calling/             # 5 scripts — tools, multi-tool agents, stateful memory
+├── 05-batch-evaluation/         # 2 scripts — accuracy testing, transcript analysis
+├── 06-comparisons/              # 3 scripts — Apple FM vs Claude benchmarks
+├── 07-real-world/               # 3 scripts — commit suggester, doc classifier, bulk tagger
+├── docs/                        # 4 in-depth guides
+├── tests/                       # Structural + module-loadability tests (no device required)
+├── utils/                       # Claude client wrapper, timing helpers
 └── requirements.txt
 ```
 
