@@ -202,9 +202,11 @@ async def fm_scan_file(text: str, source_file: str, chunk_size: int = 500) -> li
         chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
         session = None
         chunks_since_refresh = 0
+        char_offset = 0
 
         for chunk_idx, chunk in enumerate(chunks):
-            start_line = text[: sum(len(chunks[j]) for j in range(chunk_idx))].count("\n") + 1
+            start_line = text[:char_offset].count("\n") + 1
+            char_offset += len(chunk)
 
             # Refresh session every 5 chunks to clear context window
             if chunks_since_refresh >= 5 or session is None:
