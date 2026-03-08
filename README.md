@@ -240,7 +240,7 @@ python3 tests/test_pii_detection.py
 - ⚠️ Trade-off: FM is **555ms per document** (11,000x slower than regex) but perfect accuracy
 - 🎯 **Recommendation:** Use regex for speed, FM for security. Use both in a hybrid approach: regex pre-filter + FM on-demand.
 
-**Full analysis:** [PII Detection Benchmark Report](https://github.com/anthropics/claude-code/wiki/Apple-FM-PII-Detection-Benchmark)
+**Full analysis:** See [`BENCHMARK_SUMMARY.md`](BENCHMARK_SUMMARY.md) for the complete report.
 
 ## 📄 License
 

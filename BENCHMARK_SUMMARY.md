@@ -49,7 +49,7 @@ This simple shift improved results from 76.9% F1 → 100% F1.
 
 | File | Purpose |
 |------|---------|
-| `tests/test_pii_detection.py` | Full 308-line benchmark suite (25 test cases) |
+| `tests/test_pii_detection.py` | Full benchmark suite (25 test cases) |
 | `07-pii-detection-benchmark.md` | Complete documentation (400+ lines) |
 | `README.md` | Updated with benchmark results + link |
 

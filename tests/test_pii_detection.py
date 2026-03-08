@@ -21,7 +21,7 @@ from pathlib import Path
 # Add repo root so imports work when run directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pii_guardian import REGEX_PATTERNS, regex_scan
+from pii_guardian import regex_scan
 
 # ---------------------------------------------------------------------------
 # Apple FM SDK — optional
