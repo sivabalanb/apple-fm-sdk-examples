@@ -20,6 +20,7 @@ echo "SSN: 123-45-6789, email: john@example.com" | python pii_guardian.py scan -
 | `scan <dir> --recursive` | Recursively scan a directory |
 | `scan <file> --redact` | Write a redacted copy with placeholders |
 | `scan <file> --output report.json` | Export findings to JSON |
+| `scan <file> --hook` | Structured findings + masked prompt to stderr (for hooks) |
 | `scan -` | Read from stdin |
 | `pre-commit` | Scan git staged files (for hook use) |
 | `--install-hook` | Install as a git pre-commit hook |
@@ -191,12 +192,18 @@ Use `--fm` for maximum security when scanning sensitive documents. Use regex-onl
 
 PII Guardian is integrated into Claude Code as a privacy hook — every prompt you type is scanned locally before reaching Claude's API.
 
-If PII is detected, the prompt is blocked:
+If PII is detected, the prompt is blocked with structured output showing each finding and a masked version you can resubmit:
 
 ```
-🚨 PII DETECTED — Prompt contains sensitive data (SSN, credit card, API key, etc.)
-   Apple FM privacy scanner blocked this prompt to protect your data.
-   Please remove sensitive information before submitting.
+🚨 PII DETECTED — 2 finding(s) (risk: CRITICAL)
+  🔴 [SSN]                 "SSN: 123-45-6789"
+  🟡 [EMAIL]               "john@example.com"
+
+✂ Masked version (copy & resubmit):
+────────────────────────────────────────
+My name is John. SSN: [SSN_1], email: [EMAIL_1]
+────────────────────────────────────────
+Remove PII or resubmit the masked version above.
 ```
 
 This ensures you never accidentally send PII to Claude's cloud API.

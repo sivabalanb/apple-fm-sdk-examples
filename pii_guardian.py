@@ -457,6 +457,48 @@ def print_detailed_findings(results: list[ScanResult]) -> None:
             print()
 
 
+def print_hook_output(results: list[ScanResult], original_text: str) -> None:
+    """Print structured PII findings + masked prompt to stderr for Claude Code hooks."""
+    all_findings = [f for r in results for f in r.findings]
+    if not all_findings:
+        return
+
+    # Determine max severity
+    risk_scores = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+    max_score = max(risk_scores.get(f.severity, 0) for f in all_findings)
+    max_severity = {4: "CRITICAL", 3: "HIGH", 2: "MEDIUM", 1: "LOW"}.get(
+        max_score, "UNKNOWN"
+    )
+
+    severity_icon = {
+        "critical": "\U0001f534",
+        "high": "\U0001f7e0",
+        "medium": "\U0001f7e1",
+        "low": "\U0001f535",
+    }
+
+    err = sys.stderr
+
+    print(
+        f"\U0001f6a8 PII DETECTED \u2014 {len(all_findings)} finding(s) (risk: {max_severity})",
+        file=err,
+    )
+    for finding in all_findings:
+        icon = severity_icon.get(finding.severity, "\u26aa")
+        pii_label = f"[{finding.pii_type.upper()}]"
+        value_snippet = finding.value[:50]
+        print(f'  {icon} {pii_label:<20} "{value_snippet}"', file=err)
+
+    # Masked version
+    masked = redact_text(original_text, all_findings)
+    print(file=err)
+    print("\u2702 Masked version (copy & resubmit):", file=err)
+    print("\u2500" * 40, file=err)
+    print(masked, file=err)
+    print("\u2500" * 40, file=err)
+    print("Remove PII or resubmit the masked version above.", file=err)
+
+
 def export_json(results: list[ScanResult], output_path: Path) -> None:
     """Export results to JSON."""
     data = {
@@ -616,6 +658,11 @@ def main() -> None:
         help="Generate redacted versions of files with PII",
     )
     scan_parser.add_argument(
+        "--hook",
+        action="store_true",
+        help="Output structured findings + masked prompt to stderr (for Claude Code hooks)",
+    )
+    scan_parser.add_argument(
         "--output",
         help="Export results to JSON file",
     )
@@ -638,10 +685,12 @@ def main() -> None:
     if args.command == "scan":
         path_arg = args.path
         results = []
+        original_text = None
 
         # Handle stdin
         if path_arg == "-":
             text = sys.stdin.read()
+            original_text = text
             temp_file = Path("/tmp/pii_scan_stdin.txt")
             temp_file.write_text(text)
             try:
@@ -652,12 +701,24 @@ def main() -> None:
         else:
             path = Path(path_arg)
             if path.is_file():
+                original_text = path.read_text(encoding="utf-8", errors="ignore")
                 results.append(scan_file(path, use_fm=args.fm))
             elif path.is_dir():
                 results.extend(scan_directory(path, recursive=args.recursive, use_fm=args.fm))
             else:
                 print(f"[ERROR] Path not found: {path_arg}")
                 sys.exit(1)
+
+        # Hook mode: structured output to stderr, silent on clean
+        if args.hook:
+            if any(r.contains_pii for r in results):
+                if original_text is not None:
+                    print_hook_output(results, original_text)
+                else:
+                    # Directory scan — show findings without masked copy
+                    print_hook_output(results, "")
+                sys.exit(1)
+            sys.exit(0)
 
         # Display results
         print_summary(results)

@@ -23,13 +23,9 @@ echo "$PROMPT" > "$TEMP_FILE"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Scan with pii_guardian.py using Apple FM for contextual detection (batched/chunked to avoid context overflow)
-if python3 "$REPO_ROOT/pii_guardian.py" scan "$TEMP_FILE" --fm > /dev/null; then
-    # Exit 0 means no PII found — allow the prompt
+# --hook outputs structured findings + masked prompt to stderr
+if python3 "$REPO_ROOT/pii_guardian.py" scan "$TEMP_FILE" --fm --hook; then
     exit 0
 else
-    # Exit code 1 from pii_guardian means PII detected — block the prompt
-    echo "🚨 PII DETECTED — Prompt contains sensitive data (SSN, credit card, email, phone, API key)" >&2
-    echo "   Privacy check blocked this prompt to protect your data." >&2
-    echo "   Please remove sensitive information before submitting." >&2
     exit 2
 fi
